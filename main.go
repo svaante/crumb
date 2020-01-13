@@ -12,6 +12,7 @@ import (
     "errors"
     "strconv"
     "bufio"
+    "time"
 )
 
 type PreSufFix struct {
@@ -33,13 +34,15 @@ type Config struct {
 type Crumb struct {
     marked bool
     text string
+    modifiedDate *time.Time
+    createdDate *time.Time
 }
 
 func Unquote(str string) string {
     if strUnqouted, err := strconv.Unquote(str); err == nil {
         return strUnqouted
     } else {
-        return str;
+        return str
     }
 }
 
@@ -51,7 +54,7 @@ func newDefaultConfig() *Config {
     return &Config{
         StopAt: "/",
         CrumbFileName: ".crumbs",
-        Marker: "m ",
+        Marker: "m",
         Filters: []string{"all"},
         VisualMarked: PreSufFix{
             Prefix: "m ",
@@ -113,31 +116,54 @@ func readFile(path string) string {
     return string(content)
 }
 
-func stringFromCrumb(crumb Crumb, conf *Config) string {
-    marker := ""
-    if crumb.marked {
-        marker = conf.Marker
+func formatDate(date time.Time) string {
+    return date.Format("2006-01-02 15:04:05")
+}
+
+func parseDate(dateString string) time.Time {
+    date, err := time.Parse("2006-01-02 15:04:05", dateString)
+    if err != nil {
+        log.Fatal("Invalid time format")
     }
-    return fmt.Sprintf("%s%s", marker, crumb.text)
+    return date
+}
+
+func stringFromCrumb(crumb Crumb, conf *Config) string {
+    var marker string
+    var createdDateString string
+    if crumb.marked {
+        marker = conf.Marker + " "
+    }
+    if (crumb.createdDate == nil) {
+        createdDateString = formatDate(time.Now()) + " "
+    } else {
+        createdDateString = formatDate(*crumb.createdDate) + " "
+    }
+    modifedDateString := formatDate(time.Now()) + " "
+    return fmt.Sprintf("%s%s%s%s", marker, modifedDateString, createdDateString, crumb.text)
 }
 
 func crumbFromString(crumbLine string, conf *Config) Crumb {
-    rMarked, rMarkedErr := regexp.Compile(fmt.Sprintf("^%s", conf.Marker))
-    if rMarkedErr != nil {
+    re, err := regexp.Compile(fmt.Sprintf( `(%s )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?(.*)`, conf.Marker))
+    if err != nil {
         log.Fatal(fmt.Sprintf("Bad `marker=%s` unable to compile regexp",
-                                   conf.Marker))
+                              conf.Marker))
     }
 
-    rText, rTextErr := regexp.Compile(fmt.Sprintf("(^%s|)(.*)", conf.Marker))
-    if rTextErr != nil {
-        log.Fatal(fmt.Sprintf("Bad `Marker=%s` unable to compile regexp",
-                                   conf.Marker))
-    }
+    matches := re.FindStringSubmatch(crumbLine)
 
     crumb := Crumb{}
-
-    crumb.marked = rMarked.MatchString(crumbLine)
-    crumb.text = rText.FindStringSubmatch(crumbLine)[2]
+    crumb.marked = matches[1] != ""
+    if matches[2] != "" && matches[3] == "" {
+        dateCreated := parseDate(matches[2][:len(matches[2]) - 1])
+        crumb.createdDate = &dateCreated
+    } else if matches[2] != "" && matches[3] != "" {
+        dateModified := parseDate(matches[2][:len(matches[2]) - 1])
+        dateCreated := parseDate(matches[3][:len(matches[3]) - 1])
+        crumb.createdDate = &dateCreated
+        crumb.modifiedDate = &dateModified
+    }
+    crumb.text = matches[4]
 
     return crumb
 }
@@ -246,7 +272,12 @@ func wa(dir string, conf *Config) {
     }
 }
 
-func ad(dir string, crumbLine string, conf *Config) {
+func createCrumbEntry(text string) string {
+    createDate := formatDate(time.Now())
+    return fmt.Sprintf("%s %s", createDate, text)
+}
+
+func ad(dir string, text string, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
 
     file, err := os.OpenFile(crumbFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -254,7 +285,7 @@ func ad(dir string, crumbLine string, conf *Config) {
         log.Fatal(fmt.Sprintf("Unable to access %s for writing", crumbFilePath))
     }
 
-    if _, err := file.Write([]byte(crumbLine + "\n")); err != nil {
+    if _, err := file.Write([]byte(createCrumbEntry(text) + "\n")); err != nil {
         log.Fatal(err)
     }
 
