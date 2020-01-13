@@ -213,11 +213,13 @@ func findCrumbFiles(dir string, conf *Config) []string {
     return crumbFilePaths
 }
 
-func printCrumbFile(crumbFilePath string, filter func (Crumb) bool, sort func ([]Crumb), conf *Config) {
+func printCrumbFile(crumbFilePath string, filter func (Crumb) bool, sortFns []func([]Crumb) func(int, int) bool, conf *Config) {
     if fileExists(crumbFilePath) {
         fileContent := readFile(crumbFilePath)
         crumbs := crumbsFromFileContent(fileContent, conf)
-        sort(crumbs)
+        for _, sortFn := range sortFns {
+            sort.SliceStable(crumbs, sortFn(crumbs))
+        }
 
         header := preSufFixString(conf.VisualHeader, filepath.Join(crumbFilePath, ".."))
         fmt.Println(header)
@@ -234,17 +236,17 @@ func ls(dir string, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
 
     filter := buildFilters(conf.Filters)
-    sort := buildSorts(conf.Sorts)
-    printCrumbFile(crumbFilePath, filter, sort, conf)
+    sortFns := buildSorts(conf.Sorts)
+    printCrumbFile(crumbFilePath, filter, sortFns, conf)
 }
 
 func fl(dir string, conf *Config) {
     crumbFilePaths := findCrumbFiles(dir, conf)
 
     filter := buildFilters(conf.Filters)
-    sort := buildSorts(conf.Sorts)
+    sortFns := buildSorts(conf.Sorts)
     for _, crumbFilePath := range crumbFilePaths {
-        printCrumbFile(crumbFilePath, filter, sort, conf)
+        printCrumbFile(crumbFilePath, filter, sortFns, conf)
     }
 }
 
@@ -273,9 +275,9 @@ func wa(dir string, conf *Config) {
     walk(filepath.Join(dir), 0)
 
     filter := buildFilters(conf.Filters)
-    sort := buildSorts(conf.Sorts)
+    sortFns := buildSorts(conf.Sorts)
     for _, crumbFilePath := range crumbFilePaths {
-        printCrumbFile(crumbFilePath, filter, sort, conf)
+        printCrumbFile(crumbFilePath, filter, sortFns, conf)
     }
 }
 
@@ -343,17 +345,28 @@ func getValidDir(dirPath string) (string, error) {
     return "", errors.New("Path does not lead to a dir")
 }
 
-func getCrumbsFromLines(crumbLines []string, filter func(Crumb) bool, conf *Config) ([]Crumb, []int) {
-    var crumbs []Crumb
-    var lineNumbers []int
+func getCrumbsFromLines(crumbLines []string, filter func(Crumb) bool, sortFns []func([]Crumb) func(int, int) bool, conf *Config) ([]Crumb, []int) {
+    var zip []struct{Crumb; int}
+    var tmpCrumbs []Crumb
+
     for lineNumber, crumbLine := range crumbLines {
         if (crumbLine != "") {
             crumb := crumbFromString(crumbLine, conf)
             if filter(crumb) {
-                crumbs = append(crumbs, crumb)
-                lineNumbers = append(lineNumbers, lineNumber)
+                tmpCrumbs = append(tmpCrumbs, crumb)
+                zip = append(zip, struct{Crumb; int}{crumb, lineNumber})
             }
         }
+    }
+    for _, sortFn := range sortFns {
+        sort.SliceStable(zip, sortFn(tmpCrumbs))
+    }
+    var crumbs []Crumb
+    var lineNumbers []int
+
+    for _, e := range zip {
+        crumbs = append(crumbs, e.Crumb)
+        lineNumbers = append(lineNumbers, e.int)
     }
     return crumbs, lineNumbers
 }
@@ -424,7 +437,7 @@ func newFileContent(crumbLines []string, selections []int, action func(Crumb) *C
     return newFileContent
 }
 
-func selectionInteractive(dir string, cmdName string, filter func(Crumb) bool, action func(Crumb) *Crumb, conf *Config) {
+func selectionInteractive(dir string, cmdName string, filter func(Crumb) bool, sortFns []func([]Crumb) func(int, int) bool, action func(Crumb) *Crumb, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
     if fileExists(crumbFilePath) {
         fileContent := readFile(crumbFilePath)
@@ -433,7 +446,7 @@ func selectionInteractive(dir string, cmdName string, filter func(Crumb) bool, a
         fmt.Println(header)
 
         crumbLines := strings.Split(fileContent, "\n")
-        crumbs, lineNumbers := getCrumbsFromLines(crumbLines, filter, conf)
+        crumbs, lineNumbers := getCrumbsFromLines(crumbLines, filter, sortFns, conf)
 
         printCrumbs(crumbs, true, conf)
 
@@ -448,13 +461,13 @@ func selectionInteractive(dir string, cmdName string, filter func(Crumb) bool, a
     }
 }
 
-func selection(dir string, input string, filter func(Crumb) bool, action func(Crumb) *Crumb, conf *Config) {
+func selection(dir string, input string, filter func(Crumb) bool, sortFns []func([]Crumb) func(int, int) bool, action func(Crumb) *Crumb, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
     if fileExists(crumbFilePath) {
         fileContent := readFile(crumbFilePath)
 
         crumbLines := strings.Split(fileContent, "\n")
-        _, lineNumbers := getCrumbsFromLines(crumbLines, filter, conf)
+        _, lineNumbers := getCrumbsFromLines(crumbLines, filter, sortFns, conf)
 
         selections := parseSelection(input, lineNumbers)
 
@@ -472,7 +485,8 @@ func delete(crumb Crumb) *Crumb {
 }
 
 func rm(dir string, arg string, conf *Config) {
-    selection(dir, arg, all, delete, conf)
+    sortFns := buildSorts(conf.Sorts)
+    selection(dir, arg, all, sortFns, delete, conf)
 }
 
 func isNotMarked(crumb Crumb) bool {
@@ -517,7 +531,7 @@ func sortUnMarked(crumbs []Crumb) func (int, int) bool {
     }
 }
 
-func buildSorts(sortNames []string) func ([]Crumb) {
+func buildSorts(sortNames []string) []func ([]Crumb) func (int, int) bool {
     var sortFns []func ([]Crumb) func (int, int) bool
     for _, sortName := range sortNames {
         if sortName == "sortNone" {
@@ -530,11 +544,7 @@ func buildSorts(sortNames []string) func ([]Crumb) {
             sortFns = append(sortFns, sortUnMarked)
         }
     }
-    return func (crumbs []Crumb) {
-        for _, sortFn := range sortFns {
-            sort.SliceStable(crumbs, sortFn(crumbs))
-        }
-    }
+    return sortFns
 }
 
 func buildFilters(filterNames []string) func (Crumb) bool {
@@ -558,11 +568,13 @@ func buildFilters(filterNames []string) func (Crumb) bool {
 }
 
 func ma(dir string, arg string, conf *Config) {
-    selection(dir, arg, isNotMarked, mark, conf)
+    sortFns := buildSorts(conf.Sorts)
+    selection(dir, arg, isNotMarked, sortFns, mark, conf)
 }
 
 func um(dir string, arg string, conf *Config) {
-    selection(dir, arg, isMarked, unMark, conf)
+    sortFns := buildSorts(conf.Sorts)
+    selection(dir, arg, isMarked, sortFns, unMark, conf)
 }
 
 func interactive(dir string, conf *Config) {
@@ -583,11 +595,14 @@ func interactive(dir string, conf *Config) {
             input, _ := reader.ReadString('\n')
             ad(dir, input[:len(input) - 1], conf)
         } else if (cmd == "m" || cmd == "ma") {
-            selectionInteractive(dir, "ma", isNotMarked, mark, conf)
+            sortFns := buildSorts(conf.Sorts)
+            selectionInteractive(dir, "ma", isNotMarked, sortFns, mark, conf)
         } else if (cmd == "u" || cmd == "um") {
-            selectionInteractive(dir, "um", isMarked, unMark, conf)
+            sortFns := buildSorts(conf.Sorts)
+            selectionInteractive(dir, "um", isMarked, sortFns, unMark, conf)
         } else if (cmd == "r" || cmd == "rm") {
-            selectionInteractive(dir, "rm", all, delete, conf)
+            sortFns := buildSorts(conf.Sorts)
+            selectionInteractive(dir, "rm", all, sortFns, delete, conf)
         } else if (cmd == "c" || cmd == "cd") {
 
         } else if (cmd == "f" || cmd == "fl") {
