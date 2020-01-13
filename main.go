@@ -13,6 +13,7 @@ import (
     "strconv"
     "bufio"
     "time"
+    "sort"
 )
 
 type PreSufFix struct {
@@ -25,6 +26,7 @@ type Config struct {
     CrumbFileName string
     Marker string
     Filters []string
+    Sorts []string
     VisualMarked PreSufFix
     VisualUnMarked PreSufFix
     VisualHeader PreSufFix
@@ -55,7 +57,8 @@ func newDefaultConfig() *Config {
         StopAt: "/",
         CrumbFileName: ".crumbs",
         Marker: "m",
-        Filters: []string{"all"},
+        Filters: []string{},
+        Sorts: []string{},
         VisualMarked: PreSufFix{
             Prefix: "m ",
             Suffix: "",
@@ -210,10 +213,11 @@ func findCrumbFiles(dir string, conf *Config) []string {
     return crumbFilePaths
 }
 
-func printCrumbFile(crumbFilePath string, filter func (Crumb) bool, conf *Config) {
+func printCrumbFile(crumbFilePath string, filter func (Crumb) bool, sort func ([]Crumb), conf *Config) {
     if fileExists(crumbFilePath) {
         fileContent := readFile(crumbFilePath)
         crumbs := crumbsFromFileContent(fileContent, conf)
+        sort(crumbs)
 
         header := preSufFixString(conf.VisualHeader, filepath.Join(crumbFilePath, ".."))
         fmt.Println(header)
@@ -230,15 +234,17 @@ func ls(dir string, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
 
     filter := buildFilters(conf.Filters)
-    printCrumbFile(crumbFilePath, filter, conf)
+    sort := buildSorts(conf.Sorts)
+    printCrumbFile(crumbFilePath, filter, sort, conf)
 }
 
 func fl(dir string, conf *Config) {
     crumbFilePaths := findCrumbFiles(dir, conf)
 
     filter := buildFilters(conf.Filters)
+    sort := buildSorts(conf.Sorts)
     for _, crumbFilePath := range crumbFilePaths {
-        printCrumbFile(crumbFilePath, filter, conf)
+        printCrumbFile(crumbFilePath, filter, sort, conf)
     }
 }
 
@@ -267,8 +273,9 @@ func wa(dir string, conf *Config) {
     walk(filepath.Join(dir), 0)
 
     filter := buildFilters(conf.Filters)
+    sort := buildSorts(conf.Sorts)
     for _, crumbFilePath := range crumbFilePaths {
-        printCrumbFile(crumbFilePath, filter, conf)
+        printCrumbFile(crumbFilePath, filter, sort, conf)
     }
 }
 
@@ -278,6 +285,10 @@ func createCrumbEntry(text string) string {
 }
 
 func ad(dir string, text string, conf *Config) {
+    if text == "" {
+        return
+    }
+
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
 
     file, err := os.OpenFile(crumbFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -477,9 +488,53 @@ func isMarked(crumb Crumb) bool {
     return crumb.marked
 }
 
-func unMark (crumb Crumb) *Crumb {
+func unMark(crumb Crumb) *Crumb {
     crumb.marked = false
     return &crumb
+}
+
+func sortNone(_ []Crumb) func (int, int) bool {
+    return func (i, j int) bool {
+        return i < j
+    }
+}
+
+func sortReverse(_ []Crumb) func (int, int) bool {
+    return func (i, j int) bool {
+        return i > j
+    }
+}
+
+func sortMarked(crumbs []Crumb) func (int, int) bool {
+    return func (i, j int) bool {
+        return !crumbs[i].marked && crumbs[j].marked
+    }
+}
+
+func sortUnMarked(crumbs []Crumb) func (int, int) bool {
+    return func (i, j int) bool {
+        return crumbs[i].marked && !crumbs[j].marked
+    }
+}
+
+func buildSorts(sortNames []string) func ([]Crumb) {
+    var sortFns []func ([]Crumb) func (int, int) bool
+    for _, sortName := range sortNames {
+        if sortName == "sortNone" {
+            sortFns = append(sortFns, sortNone)
+        } else if sortName == "sortReverse" {
+            sortFns = append(sortFns, sortReverse)
+        } else if sortName == "sortMarked" {
+            sortFns = append(sortFns, sortMarked)
+        } else if sortName == "sortUnMarked" {
+            sortFns = append(sortFns, sortUnMarked)
+        }
+    }
+    return func (crumbs []Crumb) {
+        for _, sortFn := range sortFns {
+            sort.SliceStable(crumbs, sortFn(crumbs))
+        }
+    }
 }
 
 func buildFilters(filterNames []string) func (Crumb) bool {
