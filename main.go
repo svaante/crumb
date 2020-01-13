@@ -52,6 +52,7 @@ func newDefaultConfig() *Config {
         StopAt: "/",
         CrumbFileName: ".crumbs",
         Marker: "m ",
+        Filters: []string{"all"},
         VisualMarked: PreSufFix{
             Prefix: "m ",
             Suffix: "",
@@ -183,7 +184,7 @@ func findCrumbFiles(dir string, conf *Config) []string {
     return crumbFilePaths
 }
 
-func printCrumbFile(crumbFilePath string, conf *Config) {
+func printCrumbFile(crumbFilePath string, filter func (Crumb) bool, conf *Config) {
     if fileExists(crumbFilePath) {
         fileContent := readFile(crumbFilePath)
         crumbs := crumbsFromFileContent(fileContent, conf)
@@ -191,22 +192,27 @@ func printCrumbFile(crumbFilePath string, conf *Config) {
         header := preSufFixString(conf.VisualHeader, filepath.Join(crumbFilePath, ".."))
         fmt.Println(header)
         for _, crumb := range crumbs {
-            crumbString := formatCrumb(crumb, conf)
-            fmt.Printf("%s\n", crumbString)
+            if filter(crumb) {
+                crumbString := formatCrumb(crumb, conf)
+                fmt.Printf("%s\n", crumbString)
+            }
         }
     }
 }
 
 func ls(dir string, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
-    printCrumbFile(crumbFilePath, conf)
+
+    filter := buildFilters(conf.Filters)
+    printCrumbFile(crumbFilePath, filter, conf)
 }
 
 func fl(dir string, conf *Config) {
     crumbFilePaths := findCrumbFiles(dir, conf)
 
+    filter := buildFilters(conf.Filters)
     for _, crumbFilePath := range crumbFilePaths {
-        printCrumbFile(crumbFilePath, conf)
+        printCrumbFile(crumbFilePath, filter, conf)
     }
 }
 
@@ -234,8 +240,9 @@ func wa(dir string, conf *Config) {
     }
     walk(filepath.Join(dir), 0)
 
+    filter := buildFilters(conf.Filters)
     for _, crumbFilePath := range crumbFilePaths {
-        printCrumbFile(crumbFilePath, conf)
+        printCrumbFile(crumbFilePath, filter, conf)
     }
 }
 
