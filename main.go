@@ -210,6 +210,35 @@ func fl(dir string, conf *Config) {
     }
 }
 
+func wa(dir string, conf *Config) {
+    var crumbFilePaths []string
+    maxDepth := 3
+
+    var walk func(string, int)
+    walk = func (dir string, depth int) {
+        if (depth >= maxDepth) {
+            return
+        }
+
+        files, err := ioutil.ReadDir(dir)
+        if err != nil {
+            return
+        }
+        for _, file := range files {
+            if file.Name() == conf.CrumbFileName {
+                crumbFilePaths = append(crumbFilePaths, filepath.Join(dir, conf.CrumbFileName))
+            } else if file.IsDir() {
+                walk(filepath.Join(dir, file.Name()), depth + 1)
+            }
+        }
+    }
+    walk(filepath.Join(dir), 0)
+
+    for _, crumbFilePath := range crumbFilePaths {
+        printCrumbFile(crumbFilePath, conf)
+    }
+}
+
 func ad(dir string, crumbLine string, conf *Config) {
     crumbFilePath := filepath.Join(dir, conf.CrumbFileName)
 
@@ -394,8 +423,6 @@ func delete(crumb Crumb) *Crumb {
 }
 
 func rm(dir string, arg string, conf *Config) {
-
-
     selection(dir, arg, all, delete, conf)
 }
 
@@ -446,7 +473,7 @@ func um(dir string, arg string, conf *Config) {
 }
 
 func interactive(dir string, conf *Config) {
-    helpText := "\n*** Commands ***\n  [l]s  [a]d  [m]a  [u]m  [r]m  [c]d  [f]l\n> "
+    helpText := "\n*** Commands ***\n  [l]s  [a]d  [m]a  [u]m  [r]m  [c]d  [f]l  [w]a\n> "
     ls(dir, conf)
     reader := bufio.NewReader(os.Stdin)
     for true {
@@ -457,7 +484,7 @@ func interactive(dir string, conf *Config) {
         if (cmd == "") {
             return
         } else if (cmd == "l" || cmd == "ls") {
-            fl(dir, conf);
+            ls(dir, conf);
         } else if (cmd == "a" || cmd == "ad") {
             fmt.Printf("ad>> ")
             input, _ := reader.ReadString('\n')
@@ -472,6 +499,8 @@ func interactive(dir string, conf *Config) {
 
         } else if (cmd == "f" || cmd == "fl") {
             fl(dir, conf);
+        } else if (cmd == "w" || cmd == "wa") {
+            wa(dir, conf);
         }
     }
 }
@@ -551,6 +580,19 @@ crumbs sports a config file at "$HOME/.crumbrc.json"`,
         }
 
         ls(dir, conf)
+    } else if cmd == "wa" {
+        var dir string
+        if len(args) > 1 {
+            var err error
+            dir, err = getValidDir(args[1])
+            if err != nil {
+                log.Fatal(fmt.Sprintf("%s is not a valid dir", args[1]))
+            }
+        } else {
+            dir = getWD()
+        }
+
+        wa(dir, conf)
     } else if cmd == "fl" {
         var dir string
         if len(args) > 1 {
