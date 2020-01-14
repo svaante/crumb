@@ -21,20 +21,24 @@ type PreSufFix struct {
     Suffix string
 }
 
+type Function struct {
+    Name string
+    Args []string
+}
+
 type Config struct {
     StopAt string
     CrumbFileName string
-    Marker string
-    Filters []string
-    Sorts []string
-    VisualMarked PreSufFix
-    VisualUnMarked PreSufFix
-    VisualHeader PreSufFix
-    VisualSelector PreSufFix
+    Markers map[string]PreSufFix
+    UnMarked PreSufFix
+    Header PreSufFix
+    Selector PreSufFix
+    Filters []Function
+    Sorts []Function
 }
 
 type Crumb struct {
-    marked bool
+    marker string
     text string
     modifiedDate *time.Time
     createdDate *time.Time
@@ -56,25 +60,7 @@ func newDefaultConfig() *Config {
     return &Config{
         StopAt: "/",
         CrumbFileName: ".crumbs",
-        Marker: "m",
-        Filters: []string{},
-        Sorts: []string{},
-        VisualMarked: PreSufFix{
-            Prefix: "m ",
-            Suffix: "",
-        },
-        VisualUnMarked: PreSufFix{
-            Prefix: "  ",
-            Suffix: "",
-        },
-        VisualHeader: PreSufFix{
-            Prefix: "crumb:",
-            Suffix: "",
-        },
-        VisualSelector: PreSufFix{
-            Prefix: "",
-            Suffix: "",
-        },
+        Markers: map[string]PreSufFix{"m": PreSufFix{}},
     }
 }
 
@@ -133,42 +119,52 @@ func parseDate(dateString string) time.Time {
 
 func stringFromCrumb(crumb Crumb, conf *Config) string {
     var marker string
-    var createdDateString string
-    if crumb.marked {
-        marker = conf.Marker + " "
+    if (crumb.marker != "") {
+        marker = crumb.marker + " "
     }
+    var createdDateString string
     if (crumb.createdDate == nil) {
         createdDateString = formatDate(time.Now()) + " "
     } else {
         createdDateString = formatDate(*crumb.createdDate) + " "
     }
     modifedDateString := formatDate(time.Now()) + " "
-    return fmt.Sprintf("%s%s%s%s", marker, modifedDateString, createdDateString, crumb.text)
+    return fmt.Sprintf("%s%s%s%s", modifedDateString, createdDateString, marker, crumb.text)
 }
 
-func crumbFromString(crumbLine string, conf *Config) Crumb {
-    re, err := regexp.Compile(fmt.Sprintf( `(%s )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?(.*)`, conf.Marker))
+func crumbFromString(crumbLine string, conf *Config) (Crumb, error) {
+    var markers []string
+    for marker, _ := range conf.Markers {
+        markers = append(markers, marker)
+    }
+    markersRe := fmt.Sprintf("(?:(%s) )", strings.Join(markers, "|"))
+
+    re, err := regexp.Compile(fmt.Sprintf(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} )%s?(.*)`, markersRe))
     if err != nil {
-        log.Fatal(fmt.Sprintf("Bad `marker=%s` unable to compile regexp",
-                              conf.Marker))
+        log.Fatal(fmt.Sprintf("Bad `Markers=%s` unable to compile regexp",
+                              strings.Join(markers, ", ")))
     }
 
     matches := re.FindStringSubmatch(crumbLine)
-
     crumb := Crumb{}
-    crumb.marked = matches[1] != ""
-    if matches[2] != "" && matches[3] == "" {
-        dateCreated := parseDate(matches[2][:len(matches[2]) - 1])
+
+    if len(matches) == 0 {
+        return crumb, errors.New("Unable to parse line to crumb")
+    }
+
+    if matches[1] != "" && matches[2] == "" {
+        dateCreated := parseDate(matches[1][:len(matches[1]) - 1])
         crumb.createdDate = &dateCreated
-    } else if matches[2] != "" && matches[3] != "" {
-        dateModified := parseDate(matches[2][:len(matches[2]) - 1])
-        dateCreated := parseDate(matches[3][:len(matches[3]) - 1])
+    } else if matches[1] != "" && matches[2] != "" {
+        dateModified := parseDate(matches[1][:len(matches[1]) - 1])
+        dateCreated := parseDate(matches[2][:len(matches[2]) - 1])
         crumb.createdDate = &dateCreated
         crumb.modifiedDate = &dateModified
     }
+    crumb.marker = matches[3]
     crumb.text = matches[4]
 
-    return crumb
+    return crumb, nil
 }
 
 func crumbsFromFileContent(crumbContent string, conf *Config) []Crumb {
@@ -177,7 +173,11 @@ func crumbsFromFileContent(crumbContent string, conf *Config) []Crumb {
     var crumbs []Crumb
     for _, crumbLine := range crumbLines {
         if (crumbLine != "") {
-            crumbs = append(crumbs, crumbFromString(crumbLine, conf))
+            crumb, err := crumbFromString(crumbLine, conf)
+
+            if err == nil {
+                crumbs = append(crumbs, crumb)
+            }
         }
     }
 
@@ -186,10 +186,10 @@ func crumbsFromFileContent(crumbContent string, conf *Config) []Crumb {
 
 func formatCrumb(crumb Crumb, conf *Config) string {
     var str string
-    if crumb.marked {
-        str = preSufFixString(conf.VisualMarked, crumb.text)
+    if crumb.marker == "" {
+        str = preSufFixString(conf.UnMarked, crumb.text)
     } else {
-        str = preSufFixString(conf.VisualUnMarked, crumb.text)
+        str = preSufFixString(conf.Markers[crumb.marker], crumb.text)
     }
 
     return str
@@ -221,7 +221,7 @@ func printCrumbFile(crumbFilePath string, filter func (Crumb) bool, sortFns []fu
             sort.SliceStable(crumbs, sortFn(crumbs))
         }
 
-        header := preSufFixString(conf.VisualHeader, filepath.Join(crumbFilePath, ".."))
+        header := preSufFixString(conf.Header, filepath.Join(crumbFilePath, ".."))
         fmt.Println(header)
         for _, crumb := range crumbs {
             if filter(crumb) {
@@ -351,8 +351,8 @@ func getCrumbsFromLines(crumbLines []string, filter func(Crumb) bool, sortFns []
 
     for lineNumber, crumbLine := range crumbLines {
         if (crumbLine != "") {
-            crumb := crumbFromString(crumbLine, conf)
-            if filter(crumb) {
+            crumb, err := crumbFromString(crumbLine, conf)
+            if err == nil && filter(crumb) {
                 tmpCrumbs = append(tmpCrumbs, crumb)
                 zip = append(zip, struct{Crumb; int}{crumb, lineNumber})
             }
@@ -375,8 +375,8 @@ func printCrumbs(crumbs []Crumb, withSelectors bool, conf *Config) {
     for i, crumb := range crumbs {
         crumbString := formatCrumb(crumb, conf)
         if withSelectors {
-            selector := preSufFixString(conf.VisualSelector,  strconv.Itoa(i + 1))
-            fmt.Printf("%s %s\n", selector, crumbString)
+            selector := preSufFixString(conf.Selector,  strconv.Itoa(i + 1))
+            fmt.Printf("%s%s\n", selector, crumbString)
         } else {
             fmt.Printf("%s\n", crumbString)
         }
@@ -418,12 +418,17 @@ func parseSelection(input string, lineNumbers []int) []int {
 
 func newFileContent(crumbLines []string, selections []int, action func(Crumb) *Crumb, conf *Config) string {
     for _, lineNumber := range selections {
-        crumb := crumbFromString(crumbLines[lineNumber], conf)
+        crumb, err := crumbFromString(crumbLines[lineNumber], conf)
+
+        if err != nil {
+            continue
+        }
+
         newCrumb := action(crumb)
 
         if newCrumb == nil {
             crumbLines[lineNumber] = ""
-        } else {
+        } else if crumb != *newCrumb {
             crumbLines[lineNumber] = stringFromCrumb(*newCrumb, conf)
         }
     }
@@ -442,7 +447,7 @@ func selectionInteractive(dir string, cmdName string, filter func(Crumb) bool, s
     if fileExists(crumbFilePath) {
         fileContent := readFile(crumbFilePath)
 
-        header := preSufFixString(conf.VisualHeader, filepath.Join(crumbFilePath, ".."))
+        header := preSufFixString(conf.Header, filepath.Join(crumbFilePath, ".."))
         fmt.Println(header)
 
         crumbLines := strings.Split(fileContent, "\n")
@@ -476,6 +481,17 @@ func selection(dir string, input string, filter func(Crumb) bool, sortFns []func
     }
 }
 
+func isNot(args []string) func(Crumb) bool {
+    return func(crumb Crumb) bool {
+        for _, marker := range args {
+            if marker == crumb.marker {
+                return false
+            }
+        }
+        return true
+    }
+}
+
 func all(crumb Crumb) bool {
     return true
 }
@@ -490,20 +506,22 @@ func rm(dir string, arg string, conf *Config) {
 }
 
 func isNotMarked(crumb Crumb) bool {
-    return !crumb.marked
+    return crumb.marker == ""
 }
 
-func mark(crumb Crumb) *Crumb {
-    crumb.marked = true
-    return &crumb
+func buildMarkFn(marker string) func (Crumb) *Crumb {
+    return func (crumb Crumb) *Crumb {
+        crumb.marker = marker
+        return &crumb
+    }
 }
 
 func isMarked(crumb Crumb) bool {
-    return crumb.marked
+    return crumb.marker != ""
 }
 
 func unMark(crumb Crumb) *Crumb {
-    crumb.marked = false
+    crumb.marker = ""
     return &crumb
 }
 
@@ -521,41 +539,35 @@ func sortReverse(_ []Crumb) func (int, int) bool {
 
 func sortMarked(crumbs []Crumb) func (int, int) bool {
     return func (i, j int) bool {
-        return !crumbs[i].marked && crumbs[j].marked
+        return crumbs[i].marker == "" && crumbs[j].marker != ""
     }
 }
 
-func sortUnMarked(crumbs []Crumb) func (int, int) bool {
-    return func (i, j int) bool {
-        return crumbs[i].marked && !crumbs[j].marked
-    }
-}
-
-func buildSorts(sortNames []string) []func ([]Crumb) func (int, int) bool {
+func buildSorts(sortFunctions []Function) []func ([]Crumb) func (int, int) bool {
     var sortFns []func ([]Crumb) func (int, int) bool
-    for _, sortName := range sortNames {
-        if sortName == "sortNone" {
+    for _, sortFn := range sortFunctions {
+        if sortFn.Name == "sortNone" {
             sortFns = append(sortFns, sortNone)
-        } else if sortName == "sortReverse" {
+        } else if sortFn.Name == "sortReverse" {
             sortFns = append(sortFns, sortReverse)
-        } else if sortName == "sortMarked" {
+        } else if sortFn.Name == "sortMarked" {
             sortFns = append(sortFns, sortMarked)
-        } else if sortName == "sortUnMarked" {
-            sortFns = append(sortFns, sortUnMarked)
         }
     }
     return sortFns
 }
 
-func buildFilters(filterNames []string) func (Crumb) bool {
+func buildFilters(filterFunctions []Function) func (Crumb) bool {
     var filters []func (Crumb) bool
-    for _, filterName := range filterNames {
-        if filterName == "isMarked" {
+    for _, filterFn := range filterFunctions {
+        if filterFn.Name == "isMarked" {
             filters = append(filters, isMarked)
-        } else if filterName == "isNotMarked" {
+        } else if filterFn.Name == "isNotMarked" {
             filters = append(filters, isNotMarked)
-        } else if filterName == "all" {
+        } else if filterFn.Name == "all" {
             filters = append(filters, all)
+        } else if filterFn.Name == "isNot" {
+            filters = append(filters, isNot(filterFn.Args))
         }
     }
     return func (crumb Crumb) bool {
@@ -567,9 +579,13 @@ func buildFilters(filterNames []string) func (Crumb) bool {
     }
 }
 
-func ma(dir string, arg string, conf *Config) {
+func ma(dir string, mark string, args string, conf *Config) {
+
+    filter := func (crumb Crumb) bool {
+        return crumb.marker != mark
+    }
     sortFns := buildSorts(conf.Sorts)
-    selection(dir, arg, isNotMarked, sortFns, mark, conf)
+    selection(dir, args, filter, sortFns, buildMarkFn(mark), conf)
 }
 
 func um(dir string, arg string, conf *Config) {
@@ -578,7 +594,7 @@ func um(dir string, arg string, conf *Config) {
 }
 
 func interactive(dir string, conf *Config) {
-    helpText := "\n*** Commands ***\n  [l]s  [a]d  [m]a  [u]m  [r]m  [c]d  [f]l  [w]a\n> "
+    helpText := "\n*** Commands ***\n  [l]s  [a]d  [m]a  [u]m  [r]m  [f]l  [w]a\n> "
     ls(dir, conf)
     reader := bufio.NewReader(os.Stdin)
     for true {
@@ -595,16 +611,31 @@ func interactive(dir string, conf *Config) {
             input, _ := reader.ReadString('\n')
             ad(dir, input[:len(input) - 1], conf)
         } else if (cmd == "m" || cmd == "ma") {
-            sortFns := buildSorts(conf.Sorts)
-            selectionInteractive(dir, "ma", isNotMarked, sortFns, mark, conf)
+            var marks []string
+            for mark, _ := range conf.Markers {
+                marks = append(marks, mark)
+            }
+            fmt.Printf("\n*** Marks ***\n  %s\nmarks>> ", strings.Join(marks, "  "))
+            input, _ := reader.ReadString('\n')
+
+            if input != "\n" {
+                marker := markerFromShortHand(input[:len(input) - 1], conf)
+                if marker == "" {
+                    fmt.Sprintf("Could not evaluate marker %s\n", input[:len(input) - 1])
+                } else {
+                    filter := func (crumb Crumb) bool {
+                        return crumb.marker != marker
+                    }
+                    sortFns := buildSorts(conf.Sorts)
+                    selectionInteractive(dir, "ma", filter, sortFns, buildMarkFn(marker), conf)
+                }
+            }
         } else if (cmd == "u" || cmd == "um") {
             sortFns := buildSorts(conf.Sorts)
             selectionInteractive(dir, "um", isMarked, sortFns, unMark, conf)
         } else if (cmd == "r" || cmd == "rm") {
             sortFns := buildSorts(conf.Sorts)
             selectionInteractive(dir, "rm", all, sortFns, delete, conf)
-        } else if (cmd == "c" || cmd == "cd") {
-
         } else if (cmd == "f" || cmd == "fl") {
             fl(dir, conf);
         } else if (cmd == "w" || cmd == "wa") {
@@ -629,6 +660,33 @@ func parseDirAndArgs(args []string) (string, []string) {
         }
     }
     return dir, input
+}
+
+func getShortHandMarker(conf *Config) map[string]string {
+    var markers []string
+    shortHand := make(map[string]string)
+
+    for marker, _ := range conf.Markers {
+        shortHand[marker] = marker
+        markers = append(markers, marker)
+    }
+    for _, marker := range markers {
+        var partial string
+        for _, c := range marker[:len(marker) - 1] {
+            partial += fmt.Sprintf("%c", c)
+            _, found := shortHand[partial]
+            if !found {
+                shortHand[partial] = marker
+            }
+        }
+    }
+    return shortHand
+}
+
+func markerFromShortHand(markerShortHand string, conf *Config) string {
+    shortHandMap := getShortHandMarker(conf)
+    marker := shortHandMap[markerShortHand]
+    return marker
 }
 
 func main() {
@@ -721,11 +779,21 @@ crumbs sports a config file at "$HOME/.crumbrc.json"`,
         dir, crumbText := parseDirAndArgs(args[1:])
         ad(dir, strings.Join(crumbText, " "), conf)
     } else if cmd == "ma" {
-        if len(args) < 2 {
-            log.Fatal(fmt.Sprintf("Cannot mark without a number selection"))
+        if len(args) < 3 {
+            log.Fatal(fmt.Sprintf("Cannot mark without a marker and/or number selection"))
         }
-        dir, selections := parseDirAndArgs(args[1:])
-        ma(dir, strings.Join(selections, " "), conf)
+
+        dir, markerAndSelection := parseDirAndArgs(args[1:])
+
+        markerShortHand := markerAndSelection[0]
+        selection := strings.Join(markerAndSelection[1:], " ")
+        marker := markerFromShortHand(markerShortHand, conf) 
+
+        if marker == "" {
+            log.Fatal(fmt.Sprintf("Could not evaluate marker %s", markerShortHand))
+        }
+
+        ma(dir, marker, selection, conf)
     } else if cmd == "um" {
         if len(args) < 2 {
             log.Fatal(fmt.Sprintf("Cannot unmark without a number selection"))
