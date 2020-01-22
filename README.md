@@ -6,12 +6,12 @@
 
 ### What is crumb?
 
-`crumb` is a cli tool adding and managing crumbs your `WD`. So what is crumbs you might ask? Its whatever you want it to be. 
+`crumb` is a cli tool adding and managing crumbs your in your `WD`. So what is crumbs you might ask? Its whatever you want it to be. 
 
 A crumb inside a crumb file follows has the following syntax.. no more no less
 `Creation Date` `[Modify Date]` `[Marking]` `Text`
 
-So in essence its a `Text` string with some metadata or the date stuff is mostly accidental, so only a `Marking` tag. So its up to your understanding of the `crumbs` to `Marking`.
+So in essence its a `Text` string with some metadata or the date stuff is mostly accidental, so only a `Marking` tag. So its up to your understanding of the `crumbs` to decide upon the `Marking` field.
 
 Lets define our crumbs as todo items:
 ```sh
