@@ -2,9 +2,6 @@
 Name = "isNot"
 Args = ["done", "backlog-todo", "note", ""]
 
-[[Filters]]
-Name = "isWithinHours"
-Args = ['100']
 
 [[Sorts]]
 Name = "sortReverse"
@@ -14,8 +11,20 @@ Name = "sortMarkedOrder"
 Args = ["selected", "todo", "note"]
 
 [[Alias]]
-Name = "--bl"
+Name = "-b"
 Args = ["--noFilter", "--is", "backlog-todo"]
+
+[[Alias]]
+Name = "-n"
+Args = ["--noFilter", "--is", "note"]
+
+[[Alias]]
+Name = "-t"
+Args = ["--isModifiedWithinH", "24"]
+
+[[Alias]]
+Name = "-y"
+Args = ["--isModifiedWithinH", "48"]
 
 [UnMarked]
 Prefix='"  "'
@@ -30,7 +39,7 @@ Prefix='"  ⬡ \033[1;0;0m"'
 Suffix='"\033[0m"'
 
 [Markers.backlog-todo]
-Prefix='"  ⬡ \033[0;0;0m"'
+Prefix='"  ⬡ \033[0;35;40m"'
 Suffix='"\033[0m"'
 
 [Markers.selected]
