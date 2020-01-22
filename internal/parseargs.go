@@ -123,9 +123,11 @@ func Parse(args []string) {
 
     for _, alias := range conf.Alias {
         flags[alias.Name] = CliArg{
-            do: func (args *SimpleStack) {
-                args.Prepend(alias.Args)
-            },
+            do: func (aliasArgs []string) func (args *SimpleStack) {
+                    return func (args *SimpleStack) {
+                        args.Prepend(aliasArgs)
+                    }
+                }(alias.Args),
             help: "",
         }
     }

@@ -34,13 +34,13 @@ var filterMap = map[string]filterFnI{
         name: "isNotMarked",
         fn: isNotMarked,
     },
-    "isCreatedSinceH": filterArgsFn{
-        name: "isCreatedSinceH",
-        fn: isCreatedSinceH,
+    "isCreatedWithinH": filterArgsFn{
+        name: "isCreatedWithinH",
+        fn: isCreatedWithinH,
     },
-    "isModifiedSinceH": filterArgsFn{
-        name: "isModifiedSinceH",
-        fn: isModifiedSinceH,
+    "isModifiedWithinH": filterArgsFn{
+        name: "isModifiedWithinH",
+        fn: isModifiedWithinH,
     },
     "isNot": filterArgsFn{
         name: "isNot",
@@ -103,32 +103,41 @@ func is(args []string) filter {
     }
 }
 
-func isCreatedSinceH(args []string) filter {
+func isCreatedWithinH(args []string) filter {
     if len(args) != 1 {
-        log.Fatal(fmt.Sprintf("Filter isCreatedSinceH only excepts 1 arg not %d", len(args[0])))
+        log.Fatal(fmt.Sprintf("Filter isCreatedWithinH only excepts 1 arg not %d", len(args[0])))
     }
     i, err := strconv.Atoi(args[0])
     if err != nil {
-        log.Fatal(fmt.Sprintf("Could not parse arg %s to int isCreatedSinceH", args[0]))
+        log.Fatal(fmt.Sprintf("Could not parse arg %s to int isCreatedWithinH", args[0]))
     }
 
     return func (crumb Crumb) bool {
+        if crumb.createdDate == nil {
+            return false
+        }
         dT := time.Since(*crumb.createdDate)
         dH := dT.Hours()
         return dH <= float64(i)
     }
 }
 
-func isModifiedSinceH(args []string) filter {
+func isModifiedWithinH(args []string) filter {
     if len(args) != 1 {
-        log.Fatal(fmt.Sprintf("Filter isModifiedSinceH only excepts 1 arg not %d", len(args[0])))
+        log.Fatal(fmt.Sprintf("Filter isModifiedWithinH only excepts 1 arg not %d", len(args[0])))
     }
     i, err := strconv.Atoi(args[0]); if err != nil {
-        log.Fatal(fmt.Sprintf("Could not parse arg %s to int isModifiedSinceH", args[0]))
+        log.Fatal(fmt.Sprintf("Could not parse arg %s to int isModifiedWithinH", args[0]))
     }
 
     return func (crumb Crumb) bool {
-        dT := time.Since(*crumb.modifiedDate )
+        var date *time.Time
+        if crumb.modifiedDate != nil {
+            date = crumb.modifiedDate
+        } else {
+            date = crumb.createdDate
+        }
+        dT := time.Since(*date)
         dH := dT.Hours()
         return dH <= float64(i)
     }

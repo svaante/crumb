@@ -1,0 +1,50 @@
+[[Filters]]
+Name = "isNot"
+Args = ["done", "backlog-todo", "note", ""]
+
+[[Filters]]
+Name = "isWithinHours"
+Args = ['100']
+
+[[Sorts]]
+Name = "sortReverse"
+
+[[Sorts]]
+Name = "sortMarkedOrder"
+Args = ["selected", "todo", "note"]
+
+[[Alias]]
+Name = "--bl"
+Args = ["--noFilter", "--is", "backlog-todo"]
+
+[UnMarked]
+Prefix='"  "'
+Suffix='""'
+
+[Markers.note]
+Prefix='"  ~\033[3;37;40m"'
+Suffix='"\033[0m~"'
+
+[Markers.todo]
+Prefix='"  ⬡ \033[1;0;0m"'
+Suffix='"\033[0m"'
+
+[Markers.backlog-todo]
+Prefix='"  ⬡ \033[0;0;0m"'
+Suffix='"\033[0m"'
+
+[Markers.selected]
+Prefix='"➜ ⬡ \033[1;0;0m"'
+Suffix='"\033[0m"'
+
+[Markers.done]
+Prefix='"  ⬢ \033[0;35;40m"'
+Suffix='"\033[0m"'
+
+[Header]
+Prefix='"\033[4;34;40m"'
+Suffix='"\033[0m"'
+
+[Selector]
+Prefix='""'
+Suffix='":\t"'
